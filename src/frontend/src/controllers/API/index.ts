@@ -1,6 +1,6 @@
 import { AxiosRequestConfig, AxiosResponse } from "axios";
 import { Edge, Node, ReactFlowJsonObject } from "reactflow";
-import { BASE_URL_API, MAX_BATCH_SIZE } from "../../constants/constants";
+import { BASE_URL_API } from "../../constants/constants";
 import { api } from "../../controllers/API/api";
 import {
   APIObjectType,
@@ -133,34 +133,6 @@ export async function saveFlowToDatabase(newFlow: {
     });
 
     if (response?.status !== 201) {
-      throw new Error(`HTTP error! status: ${response?.status}`);
-    }
-    return response?.data;
-  } catch (error) {
-    console.error(error);
-    throw error;
-  }
-}
-/**
- * Updates an existing flow in the database.
- *
- * @param {FlowType} updatedFlow - The updated flow data.
- * @returns {Promise<any>} The updated flow data.
- * @throws Will throw an error if the update fails.
- */
-export async function updateFlowInDatabase(
-  updatedFlow: FlowType,
-): Promise<FlowType> {
-  try {
-    const response = await api.patch(`${BASE_URL_API}flows/${updatedFlow.id}`, {
-      name: updatedFlow.name,
-      data: updatedFlow.data,
-      description: updatedFlow.description,
-      folder_id: updatedFlow.folder_id === "" ? null : updatedFlow.folder_id,
-      endpoint_name: updatedFlow.endpoint_name,
-    });
-
-    if (response && response?.status !== 200) {
       throw new Error(`HTTP error! status: ${response?.status}`);
     }
     return response?.data;
@@ -801,41 +773,4 @@ export async function deleteFlowPool(
   const config = {};
   config["params"] = { flow_id: flowId };
   return await api.delete(`${BASE_URL_API}monitor/builds`, config);
-}
-
-/**
- * Deletes multiple flow components by their IDs.
- * @param flowIds - An array of flow IDs to be deleted.
- * @param token - The authorization token for the API request.
- * @returns A promise that resolves to an array of AxiosResponse objects representing the delete responses.
- */
-export async function multipleDeleteFlowsComponents(
-  flowIds: string[],
-): Promise<AxiosResponse<any>[]> {
-  const batches: string[][] = [];
-
-  // Split the flowIds into batches
-  for (let i = 0; i < flowIds.length; i += MAX_BATCH_SIZE) {
-    batches.push(flowIds.slice(i, i + MAX_BATCH_SIZE));
-  }
-
-  // Function to delete a batch of flow IDs
-  const deleteBatch = async (batch: string[]): Promise<AxiosResponse<any>> => {
-    try {
-      return await api.delete(`${BASE_URL_API}flows/`, {
-        data: batch,
-      });
-    } catch (error) {
-      console.error("Error deleting flows:", error);
-      throw error;
-    }
-  };
-
-  // Execute all delete requests
-  const responses: Promise<AxiosResponse<any>>[] = batches.map((batch) =>
-    deleteBatch(batch),
-  );
-
-  // Return the responses after all requests are completed
-  return Promise.all(responses);
 }

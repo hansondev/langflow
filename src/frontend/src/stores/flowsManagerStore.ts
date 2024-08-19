@@ -1,15 +1,6 @@
-import { AxiosError } from "axios";
 import { cloneDeep } from "lodash";
-import pDebounce from "p-debounce";
-import { Edge, Node, Viewport } from "reactflow";
 import { create } from "zustand";
-import { SAVE_DEBOUNCE_TIME } from "../constants/constants";
-import {
-  deleteFlowFromDatabase,
-  multipleDeleteFlowsComponents,
-  readFlowsFromDatabase,
-  updateFlowInDatabase,
-} from "../controllers/API";
+import { readFlowsFromDatabase } from "../controllers/API";
 import { FlowType } from "../types/flow";
 import {
   FlowsManagerStoreType,
@@ -33,31 +24,24 @@ const past = {};
 const future = {};
 
 const useFlowsManagerStore = create<FlowsManagerStoreType>((set, get) => ({
+  autoSaving: true,
+  setAutoSaving: (autoSaving: boolean) => set({ autoSaving }),
   examples: [],
   setExamples: (examples: FlowType[]) => {
     set({ examples });
   },
   currentFlowId: "",
-  setCurrentFlow: (flow: FlowType) => {
-    set((state) => ({
+  setCurrentFlow: (flow: FlowType | undefined) => {
+    set({
       currentFlow: flow,
-      currentFlowId: flow.id,
-    }));
+      currentFlowId: flow?.id ?? "",
+    });
+    useFlowStore.getState().resetFlow(flow);
   },
   getFlowById: (id: string) => {
-    return get().flows.find((flow) => flow.id === id);
+    return get().flows?.find((flow) => flow.id === id);
   },
-  setCurrentFlowId: (currentFlowId: string) => {
-    set((state) => ({
-      currentFlowId,
-      currentFlow: state.flows.find((flow) => flow.id === currentFlowId),
-    }));
-  },
-  flows: [],
-  allFlows: [],
-  setAllFlows: (allFlows: FlowType[]) => {
-    set({ allFlows });
-  },
+  flows: undefined,
   setFlows: (flows: FlowType[]) => {
     set({
       flows,
@@ -71,8 +55,6 @@ const useFlowsManagerStore = create<FlowsManagerStoreType>((set, get) => ({
   setIsLoading: (isLoading: boolean) => set({ isLoading }),
   refreshFlows: () => {
     return new Promise<void>((resolve, reject) => {
-      set({ isLoading: true });
-
       const starterFolderId = useFolderStore.getState().starterProjectId;
 
       readFlowsFromDatabase()
@@ -96,7 +78,6 @@ const useFlowsManagerStore = create<FlowsManagerStoreType>((set, get) => ({
                 ["saved_components"]: data,
               }),
             }));
-            set({ isLoading: false });
             resolve();
           }
         })
@@ -107,120 +88,6 @@ const useFlowsManagerStore = create<FlowsManagerStoreType>((set, get) => ({
           });
           reject(e);
         });
-    });
-  },
-  autoSaveCurrentFlow: (nodes: Node[], edges: Edge[], viewport: Viewport) => {
-    if (get().currentFlow) {
-      get().saveFlow(
-        { ...get().currentFlow!, data: { nodes, edges, viewport } },
-        true,
-      );
-    }
-  },
-  saveFlow: (flow: FlowType, silent?: boolean) => {
-    set({ saveLoading: true }); // set saveLoading true immediately
-    return get().saveFlowDebounce(flow, silent); // call the debounced function directly
-  },
-  saveFlowDebounce: pDebounce((flow: FlowType, silent?: boolean) => {
-    const folderUrl = useFolderStore.getState().folderUrl;
-    const hasFolderUrl = folderUrl != null && folderUrl !== "";
-
-    flow.folder_id = hasFolderUrl
-      ? useFolderStore.getState().folderUrl
-      : useFolderStore.getState().myCollectionId ?? "";
-
-    set({ saveLoading: true });
-    return new Promise<void>((resolve, reject) => {
-      updateFlowInDatabase(flow)
-        .then((updatedFlow) => {
-          if (updatedFlow) {
-            // updates flow in state
-            if (!silent) {
-              useAlertStore
-                .getState()
-                .setSuccessData({ title: "Changes saved successfully" });
-            }
-            get().setFlows(
-              get().flows.map((flow) => {
-                if (flow.id === updatedFlow.id) {
-                  return updatedFlow;
-                }
-                return flow;
-              }),
-            );
-            //update tabs state
-
-            resolve();
-            set({ saveLoading: false });
-          }
-        })
-        .catch((err) => {
-          useAlertStore.getState().setErrorData({
-            title: "Error while saving changes",
-            list: [(err as AxiosError).message],
-          });
-          reject(err);
-        });
-    });
-  }, SAVE_DEBOUNCE_TIME),
-  removeFlow: async (id: string | string[]) => {
-    return new Promise<void>((resolve, reject) => {
-      if (Array.isArray(id)) {
-        multipleDeleteFlowsComponents(id)
-          .then(() => {
-            const { data, flows } = processFlows(
-              get().flows.filter((flow) => !id.includes(flow.id)),
-            );
-            get().setFlows(flows);
-            set({ isLoading: false });
-            useTypesStore.setState((state) => ({
-              data: { ...state.data, ["saved_components"]: data },
-              ComponentFields: extractFieldsFromComponenents({
-                ...state.data,
-                ["saved_components"]: data,
-              }),
-            }));
-            resolve();
-          })
-          .catch((e) => reject(e));
-      } else {
-        const index = get().flows.findIndex((flow) => flow.id === id);
-        if (index >= 0) {
-          deleteFlowFromDatabase(id)
-            .then(() => {
-              const { data, flows } = processFlows(
-                get().flows.filter((flow) => flow.id !== id),
-              );
-              get().setFlows(flows);
-              set({ isLoading: false });
-              useTypesStore.setState((state) => ({
-                data: { ...state.data, ["saved_components"]: data },
-                ComponentFields: extractFieldsFromComponenents({
-                  ...state.data,
-                  ["saved_components"]: data,
-                }),
-              }));
-              resolve();
-            })
-            .catch((e) => reject(e));
-        }
-      }
-    });
-  },
-  deleteComponent: async (key: string) => {
-    return new Promise<void>((resolve) => {
-      let componentFlow = get().flows.find(
-        (componentFlow) =>
-          componentFlow.is_component && componentFlow.name === key,
-      );
-
-      if (componentFlow) {
-        get()
-          .removeFlow(componentFlow.id)
-          .then(() => {
-            resolve();
-          });
-      }
     });
   },
   takeSnapshot: () => {
